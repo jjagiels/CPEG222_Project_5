@@ -59,26 +59,26 @@
 #define LED4    LATGbits.LATG15
 
 // SSD Pmod1 (2 rightmost SSDs)using the top rows of JA & JB jumpers
-#define SegA1       LATBbits.LATB7
-#define SegB1       LATBbits.LATB8
-#define SegC1       LATBbits.LATB9
-#define SegD1       LATBbits.LATB10
-#define SegE1       LATEbits.LATE4
-#define SegF1       LATEbits.LATE5
-#define SegG1       LATEbits.LATE6
-#define DispSel1    LATEbits.LATE7 //Select between the cathodes of the 2 SSDs
+#define SegA1       LATBbits.LATB2
+#define SegB1       LATBbits.LATB3
+#define SegC1       LATBbits.LATB4
+#define SegD1       LATBbits.LATB6
+#define SegE1       LATEbits.LATE0
+#define SegF1       LATEbits.LATE1
+#define SegG1       LATEbits.LATE2
+#define DispSel1    LATEbits.LATE3 //Select between the cathodes of the 2 SSDs
 
 
 // 7 Segment Display pmod for using the top row JC & JD jumpers
 // Segments
-#define SegA 	LATBbits.LATB15
-#define SegB	LATDbits.LATD5
-#define SegC 	LATDbits.LATD4
-#define SegD 	LATBbits.LATB14
-#define SegE	LATDbits.LATD1
-#define SegF	LATDbits.LATD2
-#define SegG	LATDbits.LATD3
-#define DispSel PORTDbits.RD12 //Select between the cathodes of the 2 SSDs
+#define SegA 	LATCbits.LATC1
+#define SegB	LATGbits.LATG0
+#define SegC 	LATGbits.LATG1
+#define SegD 	LATDbits.LATD7
+#define SegE	LATDbits.LATD9
+#define SegF	LATDbits.LATD0
+#define SegG	LATCbits.LATC4
+#define DispSel LATDbits.LATD10 //Select between the cathodes of the 2 SSDs
 
 // LED Pmod attached to MX7 jumper JF
 #define PLED1 LATFbits.LATF12
@@ -90,6 +90,11 @@
 #define PLED7 LATAbits.LATA4
 #define PLED8 LATAbits.LATA5
 
+// Sensor Pmod connected to MX7 Jumper JE
+#define Sensor1 PORTbits.RA7
+#define Sensor2 PORTbits.RA9
+#define Sensor3 PORTbits.RA10
+#define Sensor4 PORTbits.RF12
 
 /*    Definition of Modes    */
 /*    Init/Left : Left digit display    */
@@ -161,8 +166,8 @@ short sec = 0;
 
 /*----------Variables for reading from microphone----------*/
 int micVal = 0;
-int sigPeak = 540;
-int sigOffset = 410;
+int sigPeak = 255;
+int sigOffset = 310;
 int tcount = 0;
 
 
@@ -177,14 +182,17 @@ main(){
     SYSTEMConfig(SYS_FREQ, SYS_CFG_WAIT_STATES | SYS_CFG_PCACHE);
     
 	PORTClearBits (IOPORT_G, BIT_12|BIT_13| BIT_14|BIT_15); //Turn all 4 LEDs OFF
-    PORTSetPinsDigitalIn (IOPORT_G, BIT_6); //Set Btn1 as input
+    PORTSetPinsDigitalIn (IOPORT_G, BIT_6|BIT_7); //Set Btn1 as input
+    PORTSetPinsDigitalIn (IOPORT_A, BIT_0);
     DDPCONbits.JTAGEN = 0; //Shutoff JTAG !!!CRITICAL!!!
     PORTSetPinsDigitalOut (IOPORT_G, BIT_12|BIT_13| BIT_14|BIT_15); //Set LD1 through LD4 as digital output
     
     /*----------Set the 2 PMOD SSDs as output----------*/
-    PORTSetPinsDigitalOut (IOPORT_E, BIT_4 |BIT_5|BIT_6|BIT_7); //Need to set these bits as outputs for the SSD, along with port B
-    PORTSetPinsDigitalOut (IOPORT_B, BIT_7|BIT_8| BIT_9| BIT_10| BIT_14| BIT_15);
-    PORTSetPinsDigitalOut (IOPORT_D, BIT_1|BIT_2| BIT_3|BIT_4 |BIT_5| BIT_12);
+    PORTSetPinsDigitalOut (IOPORT_B, BIT_2 |BIT_3|BIT_4|BIT_6); //Need to set these bits as outputs for the SSD, along with port B
+    PORTSetPinsDigitalOut (IOPORT_E, BIT_0|BIT_1| BIT_2| BIT_3);
+    PORTSetPinsDigitalOut (IOPORT_C, BIT_1|BIT_4);
+    PORTSetPinsDigitalOut (IOPORT_G, BIT_0|BIT_1);
+    PORTSetPinsDigitalOut (IOPORT_D, BIT_7|BIT_9|BIT_0|BIT_10);
     PORTB = 0;      // initialize PORTG to 0
     PORTD = 0;      // initialize PortD to 0
     
@@ -195,13 +203,21 @@ main(){
     PORTSetPinsDigitalOut (IOPORT_A, BIT_1| BIT_4| BIT_5);
     PLED1=PLED2=PLED3=PLED4=PLED5=PLED6=PLED7=PLED8=0; //zero out the LEDs
     
+    /*----------Set the Pmod Sensor as input----------*/
+    PORTSetPinsDigitalIn (IOPORT_A, BIT_7|BIT_9|BIT_10);
+    PORTSetPinsDigitalIn (IOPORT_F, BIT_12);
+    
+    /*----------Set the Servo Driver Pmod as output----------*/
+    PORTSetPinsDigitalOut (IOPORT_D, BIT_1| BIT_2);
+    
+    /*----------Set the Mic Pmod as input----------*/
+    PORTSetPinsDigitalIn (IOPORT_B, BIT_8);
     /*----------Configure Analog to Digital Converter----------*/
     AD1PCFGbits.PCFG3 = 0; // AN3 is an adc pin
     AD1CON3bits.ADCS = 2; // ADC clock period is Tad = 2*(ADCS+1)*Tpb = 2*3*12.5ns = 75ns
     AD1CON1bits.ADON = 1; // turn on A/D converter
     
-    /*----------Open the Output Compare modules for PWM----------*/
-    
+
     
     while(1){
         if((Btn1 || Btn2) && !btnLock){
@@ -213,31 +229,39 @@ main(){
                 if(!active){
                     active = 1;
                 }
-        switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
-            case stop:
-                movementMode = forward;
-                break;
+                switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
+                    case stop:
+                        movementMode = forward;
+                        LED1=1;
+                        LED2=LED3=LED4=0;
+                        break;
 
-            case forward: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
-                movementMode = right;
-                break;
+                    case forward: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
+                        movementMode = right;
+                        LED1=LED2=1;
+                        LED3=LED4=0;
+                        break;
 
-            case left:
-                movementMode = reverse;
-                break;
+                    case left:
+                        movementMode = reverse;
+                        LED1=LED2=LED3=0;
+                        LED4=1;
+                        break;
 
-            case right:
-                movementMode = left;
-                break;
+                    case right:
+                        movementMode = left;
+                        LED1=LED2=0;
+                        LED3=LED4=1;
+                        break;
 
-            case reverse: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
-                movementMode = stop;
-                break;
+                    case reverse: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
+                        movementMode = stop;
+                        LED1=LED2=LED3=LED4=1;
+                        break;
 
-            default:
-                break;
-        }
-                
+                    default:
+                        break;
+                }
             }
             else if(Btn2){
                 active = 0;
