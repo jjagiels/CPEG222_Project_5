@@ -28,6 +28,7 @@
 #define T1_INTR_RATE 4166
 #define T2_INTR_RATE 600
 #define SAMPLE_FREQ 20000
+#define MOTOR_TICK_RATE (SYS_FREQ/256/MOTOR_UPDATE)
 
 //FFT Definitions
 #define N 2048 //the number of samples stored (needs to be 2^n for FFT)
@@ -99,32 +100,31 @@ void resetAll(void);
 int readADC(int ch);
 void displaySigLevel(int);
 void delay_ms(int);
-int computeFFT(int16c*);
 void timer1_interrupt_initialize(void);
 void timer2_interrupt_initialize(void);
 
 // look-up table for the numbers
 unsigned char number[]={
     0x3f,   //0
-    0x06,   //1
-    0x5B,   //2
-    0x4F,   //3
-    0x66,   //4
-    0x6D,   //5
-    0x7D,   //6
-    0x07,   //7
+    //0x06,   //1
+    //0x5B,   //2
+    0x79,   //3
+    //0x66,   //4
+    //0x6D,   //5
+    //0x7D,   //6
+    //0x07,   //7
     0x7F,   //8
-    0x6F,   //9
-    0x77,   //A
-    0x7C,   //B
-    0x39,   //C
-    0x5E,   //D
-    0x79,   //E
-    0x71,   //F
+    //0x6F,   //9
+    //0x77,   //A
+    //0x7C,   //B
+    //0x39,   //C
+    //0x5E,   //D
+    //0x79,   //E
+    //0x71,   //F
     0x00,    //clear
     0x76,    //H
-    0x38,    //L
-    0x79,    //E
+    //0x38,    //L
+    0x4F,    //E
 };
 
 //variable definition
@@ -132,9 +132,6 @@ unsigned char number[]={
 char mode = 1;
 char btnLock = 0; //Used for debouncing
 int i = 0; //for 'for' loops.
-int lastRow = 0;
-int lastNum = 0;
-char ledActive = 1;
 int LEDs = 0;
 int amplitude = 0;
 
@@ -153,16 +150,6 @@ int sigPeak = 540;
 int sigOffset = 410;
 char mute = 1; //system starts muted
 int tcount = 0;
-
-/*----------Variables for computing FFT----------*/
-int log2N = 11; // i.e. 2^11 = N = 2048
-int16c sampleBuffer[N];
-int16c scratch[N]; //intermediate array
-int16c dout[N]; // intermediate array holds computed FFT until transmission
-int singleSidedFFT[N]; //intermediate array holds computed single side FFT
-short freqVector[N]; //array that stores the corresponding frequency of each point in frequency domain
-short freqIndex = 0;
-int finalFreq = 0;
 
 
 main(){
@@ -196,40 +183,14 @@ main(){
     AD1PCFGbits.PCFG3 = 0; // AN3 is an adc pin
     AD1CON3bits.ADCS = 2; // ADC clock period is Tad = 2*(ADCS+1)*Tpb = 2*3*12.5ns = 75ns
     AD1CON1bits.ADON = 1; // turn on A/D converter
-
-    for(i=0; i< (N/2);i++){
-        freqVector[i] = i*(SAMPLE_FREQ/2) / ((N/2) - 1);
-    }
+    
+    /*----------Open the Output Compare modul
+     *es for PWM----------*/
+    OpenOC2(OC_ON|OC_TIMER_MODE16|OC_TIMER4_SRC|OC_PWM_FAULT_PIN_DISABLE, 0, 0);
+    OpenOC3(OC_ON|OC_TIMER_MODE16|OC_TIMER4_SRC|OC_PWM_FAULT_PIN_DISABLE, 0, 0);
     
     while(1){
         
-        if(Btn1 && !btnLock){
-            for(i=0;i<800;i++){}
-            btnLock = 1;
-            if(mute){
-                LED1 = 1;
-            }
-            else{
-                LED1 = 0;
-            }
-            mute = !mute;
-        }
-        else if(!Btn1 && btnLock){
-            btnLock = 0;
-        }
-        if(tcount == N){
-            freqIndex = computeFFT(sampleBuffer);
-            for(i = 0; i<N; i++){
-                if(sampleBuffer[i].re > amplitude){
-                    amplitude = sampleBuffer[i].re;
-                }
-            }
-            LEDs = floor(((amplitude-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
-            finalFreq = ((freqVector[freqIndex]));
-            toArray(finalFreq);
-            tcount = 0;
-            amplitude = 0;
-        }
     }
 }
 
@@ -284,7 +245,7 @@ void toArray(int number){ //converts an int to seperate numbers to place in an a
         {
             SSDisplay[i] = number % 10;
         }
-        i = 0;
+        i=0;
         
         for(i = 0; i < 3; i++){
             if(SSDisplay[i] != 0){
@@ -303,8 +264,8 @@ void resetAll(void){ //resets all values
 int readADC(int ch){
     AD1CHSbits.CH0SA = ch; // 1. select analog input
     AD1CON1bits.SAMP = 1; // 2. start sampling
-    T3CON = 0x0; TMR3 = 0; T3CONSET = 0x8000; // 3. wait for sampling time
-    while (TMR3 < 10); //
+    T4CON = 0x0; TMR4 = 0; T4CONSET = 0x8000; // 3. wait for sampling time
+    while (TMR4 < 10); //
     AD1CON1bits.SAMP = 0; // 4. start the conversion
     while (!AD1CON1bits.DONE); // 5. wait conversion complete
     return ADC1BUF0; // 6. read result
@@ -338,40 +299,27 @@ void displaySigLevel(int volume){
     }
 }
 
-int computeFFT(int16c *sampleBuffer){
-    int dominantFreq = 1;
-    
-    mips_fft16(dout, sampleBuffer, fftc, scratch, log2N); //compute N point FFT
-    
-    for(i = 0; i < (N/2); i++){
-        singleSidedFFT[i] = 2 * ((dout[i].re * dout[i].re) + (dout[i].im * dout[i].im));
-    }
-    
-    for(i = 1; i < (N/2); i++){
-        if(singleSidedFFT[dominantFreq] < singleSidedFFT[i]){
-            dominantFreq = i;
-        }
-    }
-    return dominantFreq;
-}
-
 void timer1_interrupt_initialize(void){
-    OpenTimer1( (T1_ON | T1_SOURCE_INT | T1_PS_1_256), (T1_INTR_RATE - 1) );
+    OpenTimer1( (T2_ON | T1_SOURCE_INT | T1_PS_1_256), (T1_INTR_RATE - 1) );
     
-    mT1SetIntPriority(2);
-    mT1SetIntSubPriority(2);
+    mT1SetIntPriority(1);
+    mT1SetIntSubPriority(1);
     mT1IntEnable(1);
 }
 
 void timer2_interrupt_initialize(void){
-    OpenTimer2( (T2_ON | T2_SOURCE_INT | T2_PS_1_8), (T2_INTR_RATE - 1) );
+    OpenTimer2( (T2_ON | T2_SOURCE_INT | T2_PS_1_256), (T2_INTR_RATE - 1) );
     
     mT2SetIntPriority(2);
-    mT2SetIntSubPriority(3);
+    mT2SetIntSubPriority(2);
     mT2IntEnable(1);
 }
 
-void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TimerHandler(void){
+void output_compare2_initialize(void){
+
+}
+
+void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TimerHandler(void){
     
     slowDownDisplay(disp==Left, number[display_value], number[display_value1]);   // debouncing & display digit
 
@@ -390,13 +338,38 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TimerHandler(void){
     mT1ClearIntFlag();  // Clear the interrupt flag
 
 }
-void __ISR(_TIMER_2_VECTOR, IPL2SOFT) Timer2Handler(void){
+void __ISR(_TIMER_1_VECTOR, IPL2SOFT) Timer1Handler(void){
     if((!mute) && (tcount != N)){
         micVal = readADC(3); // sample and convert pin 3
-        sampleBuffer[tcount].re = micVal;  
-        tcount++;
     }
     
-    mT2ClearIntFlag();
+    mT1ClearIntFlag();
+}
+
+void __ISR(_TIMER_4_VECTOR, IPL2SOFT) Timer4Handler(void){
+    switch(mode){
+        case 1:
+            //Set Duty Cycle to keep both servos still
+            break;
+        
+        case 2:
+            //Set Duty Cycle to move bot forward
+            break;
+        
+        case 3:
+            //Set Duty Cycles to move bot to the left
+            break;
+        
+        case 4:
+            //Set Duty Cycles to move bot to the right
+            break;
+        
+        case 5:
+            //Set Duty Cycles to reverse movement
+            break;
+        
+        default:
+            break;
+    }
 }
 
