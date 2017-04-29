@@ -24,15 +24,19 @@
 #pragma config FNOSC = PRIPLL		//configure system clock 96 MHz
 #pragma config POSCMOD = EC, FPLLIDIV = DIV_2,FPLLMUL = MUL_24,FPLLODIV = DIV_1
 #pragma config FPBDIV = DIV_1		//configure peripheral bus clock to 96 MHz
-#define SYS_FREQ    (96000000L)   // 160MHz system clock
-#define T1_INTR_RATE 4166
-#define T2_INTR_RATE 600
-#define SAMPLE_FREQ 20000
-#define MOTOR_TICK_RATE (SYS_FREQ/256/MOTOR_UPDATE)
+#define SYS_FREQ    (96000000L)   // 96MHz system clock
 
-//FFT Definitions
-#define N 2048 //the number of samples stored (needs to be 2^n for FFT)
-#define fftc fft16c2048 //FFT for 1024 samples on 16 bit data
+#define SAMPLE_FREQ 20000
+#define T1_INTR_RATE (SYS_FREQ/256/SAMPLE_FREQ)
+
+#define TIMER_FREQ 10
+#define T2_INTR_RATE (SYS_FREQ/256/TIMER_FREQ)
+
+#define SSD_UPDATE_FREQ 85
+#define CORE_TICK_RATE (SYS_FREQ/256/SSD_UPDATE_FREQ)
+
+#define MOTOR_UPDATE 62.5
+#define MOTOR_TICK_RATE (SYS_FREQ/256/MOTOR_UPDATE)
 
 // The speed control
 #define DELAY 100
@@ -50,8 +54,11 @@
 #define Btn3    PORTAbits.RA0
 
 #define LED1    LATGbits.LATG12
+#define LED2    LATGbits.LATG13
+#define LED3    LATGbits.LATG14
+#define LED4    LATGbits.LATG15
 
-// SSD Pmod1 (2 rightmost SSDs)using the bottom rows of JA & JB jumpers
+// SSD Pmod1 (2 rightmost SSDs)using the top rows of JA & JB jumpers
 #define SegA1       LATBbits.LATB7
 #define SegB1       LATBbits.LATB8
 #define SegC1       LATBbits.LATB9
@@ -62,7 +69,7 @@
 #define DispSel1    LATEbits.LATE7 //Select between the cathodes of the 2 SSDs
 
 
-// 7 Segment Display pmod for using the bottom row JC & JD jumpers
+// 7 Segment Display pmod for using the top row JC & JD jumpers
 // Segments
 #define SegA 	LATBbits.LATB15
 #define SegB	LATDbits.LATD5
@@ -71,8 +78,7 @@
 #define SegE	LATDbits.LATD1
 #define SegF	LATDbits.LATD2
 #define SegG	LATDbits.LATD3
-// Display selection. 0 = right, 1 = left (Cathode)
-#define DispSel PORTDbits.RD12
+#define DispSel PORTDbits.RD12 //Select between the cathodes of the 2 SSDs
 
 // LED Pmod attached to MX7 jumper JF
 #define PLED1 LATFbits.LATF12
@@ -100,8 +106,12 @@ void resetAll(void);
 int readADC(int ch);
 void displaySigLevel(int);
 void delay_ms(int);
+void core_timer_interrupt_initialize(void);
 void timer1_interrupt_initialize(void);
 void timer2_interrupt_initialize(void);
+void timer3_interrupt_initialize(void);
+void output_compare2_initialize(void);
+void output_compare3_initialize(void);
 
 // look-up table for the numbers
 unsigned char number[]={
@@ -129,26 +139,30 @@ unsigned char number[]={
 
 //variable definition
 /*----------General variables----------*/
-char mode = 1;
 char btnLock = 0; //Used for debouncing
 int i = 0; //for 'for' loops.
 int LEDs = 0;
 int amplitude = 0;
+enum mode {stop, forward, left, right, reverse};
+enum mode movementMode = stop;
+char active = 0;
 
 /*----------Variables for SSD display----------*/
 unsigned short intDisplay = 0; //This is the number to be displayed on the SSDs
 signed short total = 0;
 unsigned char SSDisplay[4] = {16,16,16,0};
-signed char currentDispLoc = 3;
 unsigned int display_value = 0; // The initial displayed value
 unsigned int display_value1 = 0; //Initial displayed value for the rightmost SSD
 enum setDisplay disp=Left; //Initial mode is left
+
+/*----------Variables for Timer Counting----------*/
+char tenthSec = 0;
+short sec = 0;
 
 /*----------Variables for reading from microphone----------*/
 int micVal = 0;
 int sigPeak = 540;
 int sigOffset = 410;
-char mute = 1; //system starts muted
 int tcount = 0;
 
 
@@ -158,6 +172,8 @@ main(){
     INTEnableSystemMultiVectoredInt(); //enable multi-vector interrupts
     timer1_interrupt_initialize(); //initialize timer 1
     timer2_interrupt_initialize(); //initialize timer 2
+    output_compare2_initialize();
+    output_compare3_initialize();
     SYSTEMConfig(SYS_FREQ, SYS_CFG_WAIT_STATES | SYS_CFG_PCACHE);
     
 	PORTClearBits (IOPORT_G, BIT_12|BIT_13| BIT_14|BIT_15); //Turn all 4 LEDs OFF
@@ -184,13 +200,56 @@ main(){
     AD1CON3bits.ADCS = 2; // ADC clock period is Tad = 2*(ADCS+1)*Tpb = 2*3*12.5ns = 75ns
     AD1CON1bits.ADON = 1; // turn on A/D converter
     
-    /*----------Open the Output Compare modul
-     *es for PWM----------*/
-    OpenOC2(OC_ON|OC_TIMER_MODE16|OC_TIMER4_SRC|OC_PWM_FAULT_PIN_DISABLE, 0, 0);
-    OpenOC3(OC_ON|OC_TIMER_MODE16|OC_TIMER4_SRC|OC_PWM_FAULT_PIN_DISABLE, 0, 0);
+    /*----------Open the Output Compare modules for PWM----------*/
+    
     
     while(1){
+        if((Btn1 || Btn2) && !btnLock){
+            btnLock = 1;
+            for(i; i<3000; i++){}
+            i = 0;
+            
+            if(Btn1){
+                if(!active){
+                    active = 1;
+                }
+        switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
+            case stop:
+                movementMode = forward;
+                break;
+
+            case forward: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
+                movementMode = right;
+                break;
+
+            case left:
+                movementMode = reverse;
+                break;
+
+            case right:
+                movementMode = left;
+                break;
+
+            case reverse: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
+                movementMode = stop;
+                break;
+
+            default:
+                break;
+        }
+                
+            }
+            else if(Btn2){
+                active = 0;
+                resetDisplay();
+            }
+        }
+        else if (!Btn1 && btnLock) { // When both buttons are off, unlock the buttons. 
+                btnLock = 0;
+        }
         
+        intDisplay = (sec*10) + tenthSec;
+        toArray(intDisplay);
     }
 }
 
@@ -227,6 +286,8 @@ void slowDownDisplay(unsigned char display_sel, unsigned char value, unsigned ch
 
 void resetDisplay(void){ //zeroes out all relevant displaying variables and arrays
     intDisplay = 0;
+    tenthSec = 0;
+    sec = 0;
     for(i; i<4; i++){
         if(i == 3){
             SSDisplay[i] = 0;
@@ -236,7 +297,6 @@ void resetDisplay(void){ //zeroes out all relevant displaying variables and arra
         }
     }
     i = 0;
-    currentDispLoc = 3;
 }
 
 void toArray(int number){ //converts an int to seperate numbers to place in an array
@@ -299,27 +359,46 @@ void displaySigLevel(int volume){
     }
 }
 
-void timer1_interrupt_initialize(void){
-    OpenTimer1( (T2_ON | T1_SOURCE_INT | T1_PS_1_256), (T1_INTR_RATE - 1) );
+void core_timer_interrupt_initialize(void){ //Timer to control updating of SSDs. Pings at 75Hz
+    OpenCoreTimer(CORE_TICK_RATE);
+    mConfigIntCoreTimer((CT_INT_ON | CT_INT_PRIOR_6 | CT_INT_SUB_PRIOR_0));
+}
+
+void timer1_interrupt_initialize(void){ //Timer used to set the microphone sample rate. Pings at 20,000Hz
+    OpenTimer1( (T2_ON | T1_SOURCE_INT | T1_PS_1_256), (T1_INTR_RATE) );
     
     mT1SetIntPriority(1);
     mT1SetIntSubPriority(1);
     mT1IntEnable(1);
 }
 
-void timer2_interrupt_initialize(void){
-    OpenTimer2( (T2_ON | T2_SOURCE_INT | T2_PS_1_256), (T2_INTR_RATE - 1) );
+void timer2_interrupt_initialize(void){ //Timer used to control seconds counter. Pings every 100ms or 10Hz
+    OpenTimer2( (T2_ON | T2_SOURCE_INT | T2_PS_1_256), (T2_INTR_RATE) );
     
     mT2SetIntPriority(2);
-    mT2SetIntSubPriority(2);
+    mT2SetIntSubPriority(0);
     mT2IntEnable(1);
 }
 
-void output_compare2_initialize(void){
-
+void timer3_interrupt_initialize(void){ //Timer used to drive the servos. Pings every 62.5Hz
+    OpenTimer3( (T3_ON | T3_SOURCE_INT | T3_PS_1_256), (MOTOR_TICK_RATE) );
+    
+    mT3SetIntPriority(3);
+    mT3SetIntSubPriority(0);
+    mT3IntEnable(1);
 }
 
-void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TimerHandler(void){
+//TIMER 4 IS USED WITH THE ADC, SO IT IS RESERVED
+
+void output_compare2_initialize(void){
+    OpenOC2(OC_ON|OC_TIMER_MODE16|OC_TIMER3_SRC|OC_PWM_FAULT_PIN_DISABLE, 0, 0);
+}
+
+void output_compare3_initialize(void){
+    OpenOC3(OC_ON|OC_TIMER_MODE16|OC_TIMER3_SRC|OC_PWM_FAULT_PIN_DISABLE, 0, 0);
+}
+
+void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Displaying on SSDs
     
     slowDownDisplay(disp==Left, number[display_value], number[display_value1]);   // debouncing & display digit
 
@@ -335,41 +414,68 @@ void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TimerHandler(void){
     displaySigLevel(LEDs);
     
     
-    mT1ClearIntFlag();  // Clear the interrupt flag
+    mCTClearIntFlag();  // Clear the interrupt flag
 
 }
-void __ISR(_TIMER_1_VECTOR, IPL2SOFT) Timer1Handler(void){
-    if((!mute) && (tcount != N)){
-        micVal = readADC(3); // sample and convert pin 3
+void __ISR(_TIMER_1_VECTOR, IPL2SOFT) Timer1Handler(void){ //Reading from microphone
+    micVal = readADC(3); // sample and convert pin 3
+    
+    if(active){
+        CloseTimer1();
     }
     
     mT1ClearIntFlag();
 }
 
-void __ISR(_TIMER_4_VECTOR, IPL2SOFT) Timer4Handler(void){
-    switch(mode){
-        case 1:
-            //Set Duty Cycle to keep both servos still
+void __ISR(_TIMER_2_VECTOR, IPL1SOFT) Timer2Handler(void){ //Counting Time
+    
+    if(active){
+        if(tenthSec == 9){
+            tenthSec = 0;
+            sec++;
+        }
+        else{
+            tenthSec++;
+        }
+        
+        if(sec > 999){
+            sec = 0;
+        }
+    }
+    
+    mT2ClearIntFlag();
+}
+
+void __ISR(_TIMER_3_VECTOR, IPL3SOFT) Timer3Handler(void){ //Settings for PWM
+    switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
+        case stop:
+            SetDCOC2PWM(MOTOR_TICK_RATE / 9); //Set Duty Cycle to keep both servos still (666.666666 Hz)
+            SetDCOC3PWM(MOTOR_TICK_RATE / 9);
             break;
         
-        case 2:
-            //Set Duty Cycle to move bot forward
+        case forward: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
+            SetDCOC2PWM(MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Servo to CW
+            SetDCOC3PWM(MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Server to CCW
             break;
         
-        case 3:
-            //Set Duty Cycles to move bot to the left
+        case left:
+            SetDCOC2PWM(MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Servo to CW
+            SetDCOC3PWM(MOTOR_TICK_RATE / 9); //Set Duty Cycle to set Servo to stop
             break;
         
-        case 4:
-            //Set Duty Cycles to move bot to the right
+        case right:
+            SetDCOC2PWM(MOTOR_TICK_RATE / 9); //Set Duty Cycle to set Servo to stop
+            SetDCOC3PWM(MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Servo to CCW
             break;
         
-        case 5:
-            //Set Duty Cycles to reverse movement
+        case reverse: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
+            SetDCOC2PWM(MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Servo to CCW
+            SetDCOC3PWM(MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Server to CW
             break;
         
         default:
             break;
     }
+    mT3ClearIntFlag();
 }
 
