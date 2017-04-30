@@ -166,10 +166,18 @@ short sec = 0;
 
 /*----------Variables for reading from microphone----------*/
 int micVal = 0;
-int sigPeak = 255;
-int sigOffset = 310;
+int sigPeak = 310;
+int sigOffset = 255;
 int tcount = 0;
 
+/*----------Debug Variables----------*/
+
+int OCAccept = 0;
+
+/*----------Variables for driving Servos----------*/
+
+float DC2 = 0.0; //Duty Cycle for OC2
+float DC3 = 0.0; //Duty Cycle for OC3
 
 main(){
     //initialization
@@ -267,7 +275,6 @@ main(){
                 }
             }
             else if(Btn2){
-                active = 0;
                 resetDisplay();
             }
         }
@@ -409,7 +416,7 @@ void timer2_interrupt_initialize(void){ //Timer used to control seconds counter.
 }
 
 void timer3_interrupt_initialize(void){ //Timer used to drive the servos. Pings every 62.5Hz
-    OpenTimer3( (T3_ON | T3_SOURCE_INT | T3_PS_1_256), (MOTOR_TICK_RATE) );
+    OpenTimer3( (T3_ON | T3_SOURCE_INT | T3_PS_1_256), (MOTOR_TICK_RATE - 1) );
     
     mT3SetIntPriority(4);
     mT3SetIntSubPriority(0);
@@ -474,31 +481,51 @@ void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Counting Time
     mT2ClearIntFlag();
 }
 
-void __ISR(_TIMER_3_VECTOR, IPL4SOFT) Timer3Handler(void){ //Settings for PWM
+void __ISR(_TIMER_3_VECTOR, ipl4) Timer3Handler(void){ //Settings for PWM
     switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
         case stop:
-            SetDCOC2PWM(MOTOR_TICK_RATE / 9); //Set Duty Cycle to keep both servos still (666.666666 Hz)
-            SetDCOC3PWM(MOTOR_TICK_RATE / 9);
+            DC2 = 9.375; //Stop
+            DC3 = 9.375; //Stop
+            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
+            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
+            //SetDCOC2PWM(562); //Set Duty Cycle to keep both servos still (666.666666 Hz)
+            //SetDCOC3PWM(562);
             break;
         
         case forward: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
-            SetDCOC2PWM(MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Servo to CW
-            SetDCOC3PWM(MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Server to CCW
+            DC2 = 5.625; //CW
+            DC3 = 13.125; //CCW
+            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
+            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
+            //SetDCOC2PWM((float)MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Servo to CW
+            //SetDCOC3PWM((float)MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Server to CCW
             break;
         
         case left:
-            SetDCOC2PWM(MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Servo to CW
-            SetDCOC3PWM(MOTOR_TICK_RATE / 9); //Set Duty Cycle to set Servo to stop
+            DC2 = 5.625; //CW
+            DC3 = 9.375; //Stop
+            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
+            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
+            //SetDCOC2PWM((float)MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Servo to CW
+            //SetDCOC3PWM((float)MOTOR_TICK_RATE / 9); //Set Duty Cycle to set Servo to stop
             break;
         
         case right:
-            SetDCOC2PWM(MOTOR_TICK_RATE / 9); //Set Duty Cycle to set Servo to stop
-            SetDCOC3PWM(MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Servo to CCW
+            DC2 = 9.375; //Stop
+            DC3 = 13.125; //CCW
+            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
+            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
+            //SetDCOC2PWM((float)MOTOR_TICK_RATE / 9); //Set Duty Cycle to set Servo to stop
+            //SetDCOC3PWM((float)MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Servo to CCW
             break;
         
         case reverse: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
-            SetDCOC2PWM(MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Servo to CCW
-            SetDCOC3PWM(MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Server to CW
+            DC2 = 13.125; //CCW
+            DC3 = 5.625; //CW
+            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
+            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
+            //SetDCOC2PWM((float)MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Servo to CCW
+            //SetDCOC3PWM((float)MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Server to CW
             break;
         
         default:
