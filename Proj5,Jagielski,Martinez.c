@@ -120,25 +120,25 @@ void output_compare3_initialize(void);
 
 // look-up table for the numbers
 unsigned char number[]={
-    0x3f,   //0
-    //0x06,   //1
-    //0x5B,   //2
-    0x79,   //3
-    //0x66,   //4
-    //0x6D,   //5
-    //0x7D,   //6
-    //0x07,   //7
-    0x7F,   //8
-    //0x6F,   //9
-    //0x77,   //A
-    //0x7C,   //B
-    //0x39,   //C
-    //0x5E,   //D
-    //0x79,   //E
-    //0x71,   //F
+    0x3f,   //0   gfedcba
+    0x30,   //1   0110000
+    0x5B,   //2   1011011
+    0x79,   //3   1111001
+    0x74,   //4   1110100
+    0x6D,   //5   1101101
+    0x6F,   //6   1101111
+    0x38,   //7   0111000
+    0x7F,   //8   1111111
+    0x7D,   //9   1111101
+    0x77,   //A
+    0x7C,   //B
+    0x39,   //C
+    0x5E,   //D
+    0x79,   //E
+    0x71,   //F
     0x00,    //clear
     0x76,    //H
-    //0x38,    //L
+    0x38,    //L
     0x4F,    //E
 };
 
@@ -175,8 +175,10 @@ main(){
     //initialization
     INTConfigureSystem(INT_SYSTEM_CONFIG_MULT_VECTOR); //configure system for best performance
     INTEnableSystemMultiVectoredInt(); //enable multi-vector interrupts
+    core_timer_interrupt_initialize();
     timer1_interrupt_initialize(); //initialize timer 1
     timer2_interrupt_initialize(); //initialize timer 2
+    timer3_interrupt_initialize(); //initialize timer 3
     output_compare2_initialize();
     output_compare3_initialize();
     SYSTEMConfig(SYS_FREQ, SYS_CFG_WAIT_STATES | SYS_CFG_PCACHE);
@@ -193,8 +195,6 @@ main(){
     PORTSetPinsDigitalOut (IOPORT_C, BIT_1|BIT_4);
     PORTSetPinsDigitalOut (IOPORT_G, BIT_0|BIT_1);
     PORTSetPinsDigitalOut (IOPORT_D, BIT_7|BIT_9|BIT_0|BIT_10);
-    PORTB = 0;      // initialize PORTG to 0
-    PORTD = 0;      // initialize PortD to 0
     
     /*----------Set the PMOD LEDs as output----------*/
 
@@ -205,7 +205,7 @@ main(){
     
     /*----------Set the Pmod Sensor as input----------*/
     PORTSetPinsDigitalIn (IOPORT_A, BIT_7|BIT_9|BIT_10);
-    PORTSetPinsDigitalIn (IOPORT_F, BIT_12);
+    PORTSetPinsDigitalIn (IOPORT_E, BIT_8);
     
     /*----------Set the Servo Driver Pmod as output----------*/
     PORTSetPinsDigitalOut (IOPORT_D, BIT_1| BIT_2);
@@ -217,6 +217,7 @@ main(){
     AD1CON3bits.ADCS = 2; // ADC clock period is Tad = 2*(ADCS+1)*Tpb = 2*3*12.5ns = 75ns
     AD1CON1bits.ADON = 1; // turn on A/D converter
     
+    LED1=LED2=LED3=LED4=1;
 
     
     while(1){
@@ -232,6 +233,7 @@ main(){
                 switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
                     case stop:
                         movementMode = forward;
+                        active = 1;
                         LED1=1;
                         LED2=LED3=LED4=0;
                         break;
@@ -256,6 +258,7 @@ main(){
 
                     case reverse: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
                         movementMode = stop;
+                        active = 0;
                         LED1=LED2=LED3=LED4=1;
                         break;
 
@@ -271,9 +274,10 @@ main(){
         else if (!Btn1 && btnLock) { // When both buttons are off, unlock the buttons. 
                 btnLock = 0;
         }
-        
+        LEDs = floor(((micVal-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
+        displaySigLevel(LEDs);
         intDisplay = (sec*10) + tenthSec;
-        toArray(intDisplay);
+        
     }
 }
 
@@ -385,21 +389,21 @@ void displaySigLevel(int volume){
 
 void core_timer_interrupt_initialize(void){ //Timer to control updating of SSDs. Pings at 75Hz
     OpenCoreTimer(CORE_TICK_RATE);
-    mConfigIntCoreTimer((CT_INT_ON | CT_INT_PRIOR_6 | CT_INT_SUB_PRIOR_0));
+    mConfigIntCoreTimer((CT_INT_ON | CT_INT_PRIOR_6 | CT_INT_SUB_PRIOR_1));
 }
 
 void timer1_interrupt_initialize(void){ //Timer used to set the microphone sample rate. Pings at 20,000Hz
     OpenTimer1( (T2_ON | T1_SOURCE_INT | T1_PS_1_256), (T1_INTR_RATE) );
     
-    mT1SetIntPriority(1);
-    mT1SetIntSubPriority(1);
+    mT1SetIntPriority(6);
+    mT1SetIntSubPriority(2);
     mT1IntEnable(1);
 }
 
 void timer2_interrupt_initialize(void){ //Timer used to control seconds counter. Pings every 100ms or 10Hz
     OpenTimer2( (T2_ON | T2_SOURCE_INT | T2_PS_1_256), (T2_INTR_RATE) );
     
-    mT2SetIntPriority(2);
+    mT2SetIntPriority(7);
     mT2SetIntSubPriority(0);
     mT2IntEnable(1);
 }
@@ -407,7 +411,7 @@ void timer2_interrupt_initialize(void){ //Timer used to control seconds counter.
 void timer3_interrupt_initialize(void){ //Timer used to drive the servos. Pings every 62.5Hz
     OpenTimer3( (T3_ON | T3_SOURCE_INT | T3_PS_1_256), (MOTOR_TICK_RATE) );
     
-    mT3SetIntPriority(3);
+    mT3SetIntPriority(4);
     mT3SetIntSubPriority(0);
     mT3IntEnable(1);
 }
@@ -426,6 +430,7 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Displaying on
     
     slowDownDisplay(disp==Left, number[display_value], number[display_value1]);   // debouncing & display digit
 
+    toArray(intDisplay);
     
     if(disp==Left) //display on the right side SSD
     {
@@ -441,7 +446,7 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Displaying on
     mCTClearIntFlag();  // Clear the interrupt flag
 
 }
-void __ISR(_TIMER_1_VECTOR, IPL2SOFT) Timer1Handler(void){ //Reading from microphone
+void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
     micVal = readADC(3); // sample and convert pin 3
     
     if(active){
@@ -451,7 +456,7 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) Timer1Handler(void){ //Reading from microp
     mT1ClearIntFlag();
 }
 
-void __ISR(_TIMER_2_VECTOR, IPL1SOFT) Timer2Handler(void){ //Counting Time
+void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Counting Time
     
     if(active){
         if(tenthSec == 9){
@@ -470,7 +475,7 @@ void __ISR(_TIMER_2_VECTOR, IPL1SOFT) Timer2Handler(void){ //Counting Time
     mT2ClearIntFlag();
 }
 
-void __ISR(_TIMER_3_VECTOR, IPL3SOFT) Timer3Handler(void){ //Settings for PWM
+void __ISR(_TIMER_3_VECTOR, IPL4SOFT) Timer3Handler(void){ //Settings for PWM
     switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
         case stop:
             SetDCOC2PWM(MOTOR_TICK_RATE / 9); //Set Duty Cycle to keep both servos still (666.666666 Hz)
