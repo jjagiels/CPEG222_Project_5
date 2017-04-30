@@ -452,7 +452,6 @@ void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microp
     if(active){
         CloseTimer1();
     }
-    
     mT1ClearIntFlag();
 }
 
