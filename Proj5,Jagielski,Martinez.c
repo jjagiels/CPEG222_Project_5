@@ -29,11 +29,11 @@
 #define SAMPLE_FREQ 20000
 #define T1_INTR_RATE (SYS_FREQ/256/SAMPLE_FREQ)
 
-#define TIMER_FREQ 10
-#define T2_INTR_RATE (SYS_FREQ/256/TIMER_FREQ)
-
 #define SSD_UPDATE_FREQ 85
-#define CORE_TICK_RATE (SYS_FREQ/256/SSD_UPDATE_FREQ)
+#define T2_INTR_RATE (SYS_FREQ/256/SSD_UPDATE_FREQ)
+
+#define TIMER_FREQ 10
+#define CORE_TICK_RATE (SYS_FREQ/2/TIMER_FREQ)
 
 #define MOTOR_UPDATE 62.5
 #define MOTOR_TICK_RATE (SYS_FREQ/256/MOTOR_UPDATE)
@@ -91,10 +91,10 @@
 #define PLED8 LATAbits.LATA5
 
 // Sensor Pmod connected to MX7 Jumper JE
-#define Sensor1 PORTbits.RA7
-#define Sensor2 PORTbits.RA9
-#define Sensor3 PORTbits.RA10
-#define Sensor4 PORTbits.RF12
+#define Sensor1 PORTEbits.RE8
+#define Sensor2 PORTAbits.RA7
+#define Sensor3 PORTAbits.RA9
+#define Sensor4 PORTAbits.RA10
 
 /*    Definition of Modes    */
 /*    Init/Left : Left digit display    */
@@ -106,13 +106,13 @@ void displayDigit(unsigned char, unsigned char, unsigned char); // Display one d
 void slowDownDisplay(unsigned char, unsigned char, unsigned char); // Frequency control function
 void resetDisplay(void);
 void performOp(void);
-void toArray(int);
+void toArray(short, char);
 void resetAll(void);
 int readADC(int ch);
 void displaySigLevel(int);
 void delay_ms(int);
 void core_timer_interrupt_initialize(void);
-void timer1_interrupt_initialize(void);
+//void timer1_interrupt_initialize(void);
 void timer2_interrupt_initialize(void);
 void timer3_interrupt_initialize(void);
 void output_compare2_initialize(void);
@@ -184,7 +184,7 @@ main(){
     INTConfigureSystem(INT_SYSTEM_CONFIG_MULT_VECTOR); //configure system for best performance
     INTEnableSystemMultiVectoredInt(); //enable multi-vector interrupts
     core_timer_interrupt_initialize();
-    timer1_interrupt_initialize(); //initialize timer 1
+    //timer1_interrupt_initialize(); //initialize timer 1
     timer2_interrupt_initialize(); //initialize timer 2
     timer3_interrupt_initialize(); //initialize timer 3
     output_compare2_initialize();
@@ -219,11 +219,11 @@ main(){
     PORTSetPinsDigitalOut (IOPORT_D, BIT_1| BIT_2);
     
     /*----------Set the Mic Pmod as input----------*/
-    PORTSetPinsDigitalIn (IOPORT_B, BIT_8);
+    //PORTSetPinsAnalogIn (IOPORT_B, BIT_8);
     /*----------Configure Analog to Digital Converter----------*/
-    AD1PCFGbits.PCFG3 = 0; // AN3 is an adc pin
+    /*AD1PCFGbits.PCFG8 = 0; // AN8 is an adc pin
     AD1CON3bits.ADCS = 2; // ADC clock period is Tad = 2*(ADCS+1)*Tpb = 2*3*12.5ns = 75ns
-    AD1CON1bits.ADON = 1; // turn on A/D converter
+    AD1CON1bits.ADON = 1; // turn on A/D converter*/
     
     LED1=LED2=LED3=LED4=1;
 
@@ -283,8 +283,7 @@ main(){
         }
         LEDs = floor(((micVal-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
         displaySigLevel(LEDs);
-        intDisplay = (sec*10) + tenthSec;
-        
+
     }
 }
 
@@ -334,13 +333,15 @@ void resetDisplay(void){ //zeroes out all relevant displaying variables and arra
     i = 0;
 }
 
-void toArray(int number){ //converts an int to seperate numbers to place in an array
-    number = abs(number);
-        for ( i = 3; i >= 0; i--, number /= 10 )
+void toArray(short sec, char tenthSec){ //converts an int to seperate numbers to place in an array
+    sec = abs(sec);
+    tenthSec = abs(tenthSec);
+        for ( i = 2; i >= 0; i--, sec /= 10 )
         {
-            SSDisplay[i] = number % 10;
+            SSDisplay[i] = sec % 10;
         }
         i=0;
+        SSDisplay[3] = tenthSec;
         
         for(i = 0; i < 3; i++){
             if(SSDisplay[i] != 0){
@@ -399,14 +400,14 @@ void core_timer_interrupt_initialize(void){ //Timer to control updating of SSDs.
     mConfigIntCoreTimer((CT_INT_ON | CT_INT_PRIOR_6 | CT_INT_SUB_PRIOR_1));
 }
 
-void timer1_interrupt_initialize(void){ //Timer used to set the microphone sample rate. Pings at 20,000Hz
+/*void timer1_interrupt_initialize(void){ //Timer used to set the microphone sample rate. Pings at 20,000Hz
     OpenTimer1( (T2_ON | T1_SOURCE_INT | T1_PS_1_256), (T1_INTR_RATE) );
     
     mT1SetIntPriority(6);
     mT1SetIntSubPriority(2);
     mT1IntEnable(1);
 }
-
+*/
 void timer2_interrupt_initialize(void){ //Timer used to control seconds counter. Pings every 100ms or 10Hz
     OpenTimer2( (T2_ON | T2_SOURCE_INT | T2_PS_1_256), (T2_INTR_RATE) );
     
@@ -435,25 +436,25 @@ void output_compare3_initialize(void){
 
 void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Displaying on SSDs
     
-    slowDownDisplay(disp==Left, number[display_value], number[display_value1]);   // debouncing & display digit
-
-    toArray(intDisplay);
-    
-    if(disp==Left) //display on the right side SSD
-    {
-        disp=Right;display_value=SSDisplay[1];display_value1=SSDisplay[3];
+        if(active){
+            if(tenthSec == 9){
+                tenthSec = 0;
+                sec++;
+            }
+            else{
+                tenthSec++;
+            }
+        
+        if(sec > 999){
+            sec = 0;
+        }
     }
-    else //display on the left side SSD
-    {
-        disp=Left;display_value=SSDisplay[0];display_value1=SSDisplay[2];
-    }
-    displaySigLevel(LEDs);
-    
-    
+       
     mCTClearIntFlag();  // Clear the interrupt flag
+    UpdateCoreTimer(CORE_TICK_RATE);
 
 }
-void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
+/*void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
     micVal = readADC(3); // sample and convert pin 3
     
     if(active){
@@ -461,21 +462,20 @@ void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microp
     }
     mT1ClearIntFlag();
 }
-
+*/
 void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Counting Time
     
-    if(active){
-        if(tenthSec == 9){
-            tenthSec = 0;
-            sec++;
-        }
-        else{
-            tenthSec++;
-        }
-        
-        if(sec > 999){
-            sec = 0;
-        }
+    slowDownDisplay(disp==Left, number[display_value], number[display_value1]);   // debouncing & display digit
+
+    toArray(sec, tenthSec);
+    
+    if(disp==Left) //display on the right side SSD
+    {
+        disp=Right;display_value=SSDisplay[2];display_value1=SSDisplay[0];
+    }
+    else //display on the left side SSD
+    {
+        disp=Left;display_value=SSDisplay[3];display_value1=SSDisplay[1];
     }
     
     mT2ClearIntFlag();
