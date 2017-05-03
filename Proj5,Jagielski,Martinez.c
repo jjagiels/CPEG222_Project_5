@@ -1,8 +1,8 @@
-// CPEG222 - Project 3
+// CPEG222 - Project 5
 // Authors: Justin Jagielski, Joaquin Martinez
-// Inputs:  On-board buttons 1 and 2, PMODkypd
-// Outputs: Two PmodSSDs
-// Program Description: Implements common calculator functions using the Keypad PMOD as input and 2 PMOD SSDs as output.
+// Inputs:  On-board buttons 1 and 2, PMOD MIC, PMOD LSensors
+// Outputs: Two PmodSSDs, 8PLEDs, 2 Servos, On-board LEDs
+// Program Description: Implements a line-following robot on the PIC32MX7 Hardware.
 
 #include <p32xxxx.h>
 #include <plib.h>
@@ -481,24 +481,22 @@ void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Counting Time
     mT2ClearIntFlag();
 }
 
-void __ISR(_TIMER_3_VECTOR, ipl4) Timer3Handler(void){ //Settings for PWM
+void __ISR(_TIMER_3_VECTOR, IPL4SOFT) Timer3Handler(void){ //Settings for PWM
     switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
         case stop:
             DC2 = 9.375; //Stop
             DC3 = 9.375; //Stop
             SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
             SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
-            //SetDCOC2PWM(562); //Set Duty Cycle to keep both servos still (666.666666 Hz)
-            //SetDCOC3PWM(562);
+
             break;
         
-        case forward: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
+        case forward:
             DC2 = 5.625; //CW
             DC3 = 13.125; //CCW
             SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
             SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
-            //SetDCOC2PWM((float)MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Servo to CW
-            //SetDCOC3PWM((float)MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Server to CCW
+
             break;
         
         case left:
@@ -506,8 +504,7 @@ void __ISR(_TIMER_3_VECTOR, ipl4) Timer3Handler(void){ //Settings for PWM
             DC3 = 9.375; //Stop
             SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
             SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
-            //SetDCOC2PWM((float)MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Servo to CW
-            //SetDCOC3PWM((float)MOTOR_TICK_RATE / 9); //Set Duty Cycle to set Servo to stop
+
             break;
         
         case right:
@@ -515,17 +512,15 @@ void __ISR(_TIMER_3_VECTOR, ipl4) Timer3Handler(void){ //Settings for PWM
             DC3 = 13.125; //CCW
             SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
             SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
-            //SetDCOC2PWM((float)MOTOR_TICK_RATE / 9); //Set Duty Cycle to set Servo to stop
-            //SetDCOC3PWM((float)MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Servo to CCW
+
             break;
         
-        case reverse: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
+        case reverse:
             DC2 = 13.125; //CCW
             DC3 = 5.625; //CW
             SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
             SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
-            //SetDCOC2PWM((float)MOTOR_TICK_RATE / 12.6); //Set Duty Cycle to set Servo to CCW
-            //SetDCOC3PWM((float)MOTOR_TICK_RATE / 5.4); //Set Duty Cycle to set Server to CW
+
             break;
         
         default:
