@@ -455,7 +455,7 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Displaying on
 
 }
 /*void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
-    micVal = readADC(3); // sample and convert pin 3
+    micVal = readADC(8); // sample and convert pin 3
     
     if(active){
         CloseTimer1();
