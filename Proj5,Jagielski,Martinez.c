@@ -168,6 +168,8 @@ int micVal = 0;
 int sigPeak = 310;
 int sigOffset = 255;
 int tcount = 0;
+char firstClap = 0;
+char beginCount = 0;
 
 /*----------Debug Variables----------*/
 
@@ -183,7 +185,7 @@ main(){
     INTConfigureSystem(INT_SYSTEM_CONFIG_MULT_VECTOR); //configure system for best performance
     INTEnableSystemMultiVectoredInt(); //enable multi-vector interrupts
     core_timer_interrupt_initialize();
-    //timer1_interrupt_initialize(); //initialize timer 1
+    timer1_interrupt_initialize(); //initialize timer 1
     timer2_interrupt_initialize(); //initialize timer 2
     timer3_interrupt_initialize(); //initialize timer 3
     output_compare2_initialize();
@@ -229,14 +231,18 @@ main(){
     
     while(1){
 
-        
+        /*
         if(Sensor1 && !Sensor2 && !Sensor3 && Sensor4){
             movementMode = forward;
         }
-        
+        */
         
         LEDs = floor(((micVal-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
         displaySigLevel(LEDs);
+        if(LEDs >= 5){
+            firstClap = 10;
+        }
+        
 
         
     }
@@ -352,14 +358,14 @@ void displaySigLevel(int volume){
 
 void core_timer_interrupt_initialize(void){ //Timer to control updating of SSDs. Pings at 75Hz
     OpenCoreTimer(CORE_TICK_RATE);
-    mConfigIntCoreTimer((CT_INT_ON | CT_INT_PRIOR_6 | CT_INT_SUB_PRIOR_1));
+    mConfigIntCoreTimer((CT_INT_ON | CT_INT_PRIOR_6 | CT_INT_SUB_PRIOR_0));
 }
 
 void timer1_interrupt_initialize(void){ //Timer used to set the microphone sample rate. Pings at 20,000Hz
     OpenTimer1( (T2_ON | T1_SOURCE_INT | T1_PS_1_256), (T1_INTR_RATE) );
     
-    mT1SetIntPriority(6);
-    mT1SetIntSubPriority(2);
+    mT1SetIntPriority(3);
+    mT1SetIntSubPriority(0);
     mT1IntEnable(1);
 }
 
@@ -389,16 +395,38 @@ void output_compare3_initialize(void){
     OpenOC3(OC_ON|OC_TIMER_MODE16|OC_TIMER3_SRC|OC_PWM_FAULT_PIN_DISABLE, 0, 0);
 }
 
-void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Displaying on SSDs
+void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
     
-        if(active){
-            if(tenthSec == 9){
-                tenthSec = 0;
-                sec++;
+    if(firstClap){
+        if(LEDs < 5){
+            beginCount = 1;
+        }
+        if(beginCount){
+            if(LEDs >= 5){
+                LED1=!LED1;
+                LED2=!LED2;
+                LED3=!LED3;
+                LED4=!LED4;
+                firstClap = 0;
+                beginCount = 0;
             }
             else{
-                tenthSec++;
+                firstClap--;
             }
+        }
+    }
+    else if(beginCount && !firstClap){
+        beginCount = 0;
+    }
+
+    if(active){
+        if(tenthSec == 9){
+            tenthSec = 0;
+            sec++;
+        }
+        else{
+            tenthSec++;
+        }
         
         if(sec > 999){
             sec = 0;
@@ -417,7 +445,7 @@ void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microp
     }
     mT1ClearIntFlag();
 }
-void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Counting Time
+void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Displaying on SSDs
     
     slowDownDisplay(disp==Left, number[display_value], number[display_value1]);   // debouncing & display digit
 
