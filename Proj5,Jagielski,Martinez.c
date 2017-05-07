@@ -105,14 +105,13 @@ enum setDisplay {Left,Right};
 void displayDigit(unsigned char, unsigned char, unsigned char); // Display one digit among two digits
 void slowDownDisplay(unsigned char, unsigned char, unsigned char); // Frequency control function
 void resetDisplay(void);
-void performOp(void);
 void toArray(short, char);
 void resetAll(void);
 int readADC(int ch);
 void displaySigLevel(int);
 void delay_ms(int);
 void core_timer_interrupt_initialize(void);
-//void timer1_interrupt_initialize(void);
+void timer1_interrupt_initialize(void);
 void timer2_interrupt_initialize(void);
 void timer3_interrupt_initialize(void);
 void output_compare2_initialize(void);
@@ -148,7 +147,7 @@ char btnLock = 0; //Used for debouncing
 int i = 0; //for 'for' loops.
 int LEDs = 0;
 int amplitude = 0;
-enum mode {stop, forward, left, right, reverse};
+enum mode {stop, forward, left, right, reverse, hardLeft, hardRight};
 enum mode movementMode = stop;
 char active = 0;
 
@@ -221,69 +220,25 @@ main(){
     /*----------Set the Mic Pmod as input----------*/
     //PORTSetPinsAnalogIn (IOPORT_B, BIT_8);
     /*----------Configure Analog to Digital Converter----------*/
-    /*AD1PCFGbits.PCFG8 = 0; // AN8 is an adc pin
+    AD1PCFGbits.PCFG8 = 0; // AN8 is an adc pin
     AD1CON3bits.ADCS = 2; // ADC clock period is Tad = 2*(ADCS+1)*Tpb = 2*3*12.5ns = 75ns
-    AD1CON1bits.ADON = 1; // turn on A/D converter*/
+    AD1CON1bits.ADON = 1; // turn on A/D converter
     
     LED1=LED2=LED3=LED4=1;
 
     
     while(1){
-        if((Btn1 || Btn2) && !btnLock){
-            btnLock = 1;
-            for(i; i<3000; i++){}
-            i = 0;
-            
-            if(Btn1){
-                if(!active){
-                    active = 1;
-                }
-                switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
-                    case stop:
-                        movementMode = forward;
-                        active = 1;
-                        LED1=1;
-                        LED2=LED3=LED4=0;
-                        break;
 
-                    case forward: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
-                        movementMode = right;
-                        LED1=LED2=1;
-                        LED3=LED4=0;
-                        break;
-
-                    case left:
-                        movementMode = reverse;
-                        LED1=LED2=LED3=0;
-                        LED4=1;
-                        break;
-
-                    case right:
-                        movementMode = left;
-                        LED1=LED2=0;
-                        LED3=LED4=1;
-                        break;
-
-                    case reverse: /*----------!!!If Robot moves oddly, switch the forward and back Duty Cycle configs!!!----------*/
-                        movementMode = stop;
-                        active = 0;
-                        LED1=LED2=LED3=LED4=1;
-                        break;
-
-                    default:
-                        break;
-                }
-            }
-            else if(Btn2){
-                resetDisplay();
-            }
+        
+        if(Sensor1 && !Sensor2 && !Sensor3 && Sensor4){
+            movementMode = forward;
         }
-        else if (!Btn1 && btnLock) { // When both buttons are off, unlock the buttons. 
-                btnLock = 0;
-        }
+        
+        
         LEDs = floor(((micVal-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
         displaySigLevel(LEDs);
 
+        
     }
 }
 
@@ -400,14 +355,14 @@ void core_timer_interrupt_initialize(void){ //Timer to control updating of SSDs.
     mConfigIntCoreTimer((CT_INT_ON | CT_INT_PRIOR_6 | CT_INT_SUB_PRIOR_1));
 }
 
-/*void timer1_interrupt_initialize(void){ //Timer used to set the microphone sample rate. Pings at 20,000Hz
+void timer1_interrupt_initialize(void){ //Timer used to set the microphone sample rate. Pings at 20,000Hz
     OpenTimer1( (T2_ON | T1_SOURCE_INT | T1_PS_1_256), (T1_INTR_RATE) );
     
     mT1SetIntPriority(6);
     mT1SetIntSubPriority(2);
     mT1IntEnable(1);
 }
-*/
+
 void timer2_interrupt_initialize(void){ //Timer used to control seconds counter. Pings every 100ms or 10Hz
     OpenTimer2( (T2_ON | T2_SOURCE_INT | T2_PS_1_256), (T2_INTR_RATE) );
     
@@ -454,7 +409,7 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Displaying on
     UpdateCoreTimer(CORE_TICK_RATE);
 
 }
-/*void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
+void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
     micVal = readADC(8); // sample and convert pin 3
     
     if(active){
@@ -462,7 +417,6 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Displaying on
     }
     mT1ClearIntFlag();
 }
-*/
 void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Counting Time
     
     slowDownDisplay(disp==Left, number[display_value], number[display_value1]);   // debouncing & display digit
@@ -486,46 +440,46 @@ void __ISR(_TIMER_3_VECTOR, IPL4SOFT) Timer3Handler(void){ //Settings for PWM
         case stop:
             DC2 = 9.375; //Stop
             DC3 = 9.375; //Stop
-            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
-            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
 
             break;
-        
         case forward:
             DC2 = 5.625; //CW
             DC3 = 13.125; //CCW
-            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
-            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
 
             break;
         
         case left:
             DC2 = 5.625; //CW
             DC3 = 9.375; //Stop
-            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
-            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
 
             break;
         
         case right:
             DC2 = 9.375; //Stop
             DC3 = 13.125; //CCW
-            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
-            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
 
             break;
         
         case reverse:
             DC2 = 13.125; //CCW
             DC3 = 5.625; //CW
-            SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
-            SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
 
             break;
-        
+        case hardRight:
+            DC2 = 13.125; //CCW
+            DC3 = 13.125; //CCW
+            
+            break;
+        case hardLeft:
+            DC2 = 5.625; //CW
+            DC3 = 5.625; //CW
+            
+            break;
         default:
             break;
     }
+    SetDCOC2PWM((MOTOR_TICK_RATE + 1) * ((float)DC2 / 100));
+    SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
     mT3ClearIntFlag();
 }
 
