@@ -21,10 +21,10 @@
 
 
 #pragma config ICESEL = ICS_PGx1	//configure on board licensed debugger
-#pragma config FNOSC = PRIPLL		//configure system clock 96 MHz
-#pragma config POSCMOD = EC, FPLLIDIV = DIV_2,FPLLMUL = MUL_24,FPLLODIV = DIV_1
-#pragma config FPBDIV = DIV_1		//configure peripheral bus clock to 96 MHz
-#define SYS_FREQ    (96000000L)   // 96MHz system clock
+#pragma config FNOSC = PRIPLL		//configure system clock 80 MHz
+#pragma config POSCMOD = EC, FPLLIDIV = DIV_2,FPLLMUL = MUL_20,FPLLODIV = DIV_1
+#pragma config FPBDIV = DIV_1		//configure peripheral bus clock to 80 MHz
+#define SYS_FREQ    (80000000L)   // 80MHz system clock
 
 #define SAMPLE_FREQ 20000
 #define T1_INTR_RATE (SYS_FREQ/256/SAMPLE_FREQ)
@@ -116,6 +116,7 @@ void timer2_interrupt_initialize(void);
 void timer3_interrupt_initialize(void);
 void output_compare2_initialize(void);
 void output_compare3_initialize(void);
+void _general_exception_handler(void);
 
 // look-up table for the numbers
 unsigned char number[]={
@@ -140,6 +141,27 @@ unsigned char number[]={
     0x38,    //L
     0x4F,    //E
 };
+
+  //	Exception handler: 
+  static enum { 
+  	EXCEP_IRQ = 0,			// interrupt 
+  	EXCEP_AdEL = 4,			// address error exception (load or ifetch) 
+  	EXCEP_AdES,				// address error exception (store) 
+  	EXCEP_IBE,				// bus error (ifetch) 
+  	EXCEP_DBE,				// bus error (load/store) 
+  	EXCEP_Sys,				// syscall 
+  	EXCEP_Bp,				// breakpoint 
+  	EXCEP_RI,				// reserved instruction 
+  	EXCEP_CpU,				// coprocessor unusable 
+  	EXCEP_Overflow,			// arithmetic overflow 
+  	EXCEP_Trap,				// trap (possible divide by zero) 
+  	EXCEP_IS1 = 16,			// implementation specfic 1 
+  	EXCEP_CEU,				// CorExtend Unuseable 
+  	EXCEP_C2E				// coprocessor 2 
+  } _excep_code; 
+  
+  static unsigned int _epc_code; 
+  static unsigned int _excep_addr; 
 
 //variable definition
 /*----------General variables----------*/
@@ -231,11 +253,41 @@ main(){
     
     while(1){
 
-        /*
-        if(Sensor1 && !Sensor2 && !Sensor3 && Sensor4){
-            movementMode = forward;
+        while(active){
+            if(Sensor1 && !Sensor2 && !Sensor3 && Sensor4){
+                movementMode = forward;
+            }
+            else if(Sensor1 && Sensor2 && Sensor3 && Sensor4){
+                movementMode = forward;
+            }
+            else if(Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
+                movementMode = hardRight;
+            }
+            else if(!Sensor1 && !Sensor2 && !Sensor3 && Sensor4){
+                movementMode = hardLeft;
+            }
+            /*else if(!Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
+                for(i = 0; i < 10000; i++){}
+                if(!Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
+                    movementMode = stop;
+                    active = 0;   
+                }
+                else{
+                    movementMode = movementMode;
+                }
+
+            }*/
+            else if(!Sensor1 && !Sensor2 && Sensor3 && Sensor4){
+                
+                movementMode = left;
+            }
+            else if(Sensor1 && Sensor2 && !Sensor3 && !Sensor4){
+                movementMode = right;
+            }
+            else{
+                movementMode = movementMode;
+            }
         }
-        */
         
         LEDs = floor(((micVal-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
         displaySigLevel(LEDs);
@@ -397,7 +449,7 @@ void output_compare3_initialize(void){
 
 void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
     
-    if(firstClap){
+    if(firstClap && !active){
         if(LEDs < 5){
             beginCount = 1;
         }
@@ -409,6 +461,7 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
                 LED4=!LED4;
                 firstClap = 0;
                 beginCount = 0;
+                active = 1;
             }
             else{
                 firstClap--;
@@ -440,10 +493,12 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
 void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
     micVal = readADC(8); // sample and convert pin 3
     
+    mT1ClearIntFlag();    
+    
     if(active){
         CloseTimer1();
     }
-    mT1ClearIntFlag();
+
 }
 void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Displaying on SSDs
     
@@ -465,6 +520,10 @@ void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Displaying on SSDs
 
 void __ISR(_TIMER_3_VECTOR, IPL4SOFT) Timer3Handler(void){ //Settings for PWM
     switch(movementMode){ /*----------OC2 IS CURRENTLY SET TO BE THE RIGHTMOST SERVO, OC3 IS THE LEFTMOST SERVO----------*/
+        case hardLeft:
+            DC2 = 5.625; //CW
+            DC3 = 5.625; //CW
+            break;
         case stop:
             DC2 = 9.375; //Stop
             DC3 = 9.375; //Stop
@@ -485,24 +544,16 @@ void __ISR(_TIMER_3_VECTOR, IPL4SOFT) Timer3Handler(void){ //Settings for PWM
         case right:
             DC2 = 9.375; //Stop
             DC3 = 13.125; //CCW
-
             break;
-        
         case reverse:
             DC2 = 13.125; //CCW
             DC3 = 5.625; //CW
-
             break;
         case hardRight:
             DC2 = 13.125; //CCW
             DC3 = 13.125; //CCW
-            
             break;
-        case hardLeft:
-            DC2 = 5.625; //CW
-            DC3 = 5.625; //CW
-            
-            break;
+
         default:
             break;
     }
@@ -510,4 +561,22 @@ void __ISR(_TIMER_3_VECTOR, IPL4SOFT) Timer3Handler(void){ //Settings for PWM
     SetDCOC3PWM((MOTOR_TICK_RATE + 1) * ((float)DC3 / 100));
     mT3ClearIntFlag();
 }
+
+
+  
+  // this function overrides the normal _weak_ generic handler 
+  void _general_exception_handler(void) 
+  { 
+  	asm volatile("mfc0 %0,$13" : "=r" (_excep_code)); 
+  	asm volatile("mfc0 %0,$14" : "=r" (_excep_addr)); 
+  
+  	_excep_code = (_excep_code & 0x0000007C) >> 2; 
+  	 	while (1) { 
+  		// Examine _excep_code to identify the type of exception 
+  		// Examine _excep_addr to find the address that caused the exception 
+  		Nop(); 
+  		Nop(); 
+  		Nop();  
+   	} 
+  }//	End of exception handler 
 
