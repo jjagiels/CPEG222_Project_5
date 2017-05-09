@@ -261,12 +261,16 @@ main(){
                 movementMode = forward;
             }
             else if(Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
+                movementMode = right;
+                //for(i = 0; i < 2500; i++){}
                 movementMode = hardRight;
             }
             else if(!Sensor1 && !Sensor2 && !Sensor3 && Sensor4){
+                movementMode = left;
+                //for(i = 0; i < 2500; i++){}
                 movementMode = hardLeft;
             }
-            /*else if(!Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
+            else if(!Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
                 for(i = 0; i < 10000; i++){}
                 if(!Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
                     movementMode = stop;
@@ -276,7 +280,7 @@ main(){
                     movementMode = movementMode;
                 }
 
-            }*/
+            }
             else if(!Sensor1 && !Sensor2 && Sensor3 && Sensor4){
                 
                 movementMode = left;
@@ -291,9 +295,6 @@ main(){
         
         LEDs = floor(((micVal-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
         displaySigLevel(LEDs);
-        if(LEDs >= 5){
-            firstClap = 10;
-        }
         
 
         
@@ -450,11 +451,11 @@ void output_compare3_initialize(void){
 void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
     
     if(firstClap && !active){
-        if(LEDs < 5){
+        if(micVal < 280){
             beginCount = 1;
         }
         if(beginCount){
-            if(LEDs >= 5){
+            if(micVal >= 280){
                 LED1=!LED1;
                 LED2=!LED2;
                 LED3=!LED3;
@@ -492,6 +493,9 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
 }
 void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
     micVal = readADC(8); // sample and convert pin 3
+    if(micVal >= 280){
+        firstClap = 10;
+    }
     
     mT1ClearIntFlag();    
     
