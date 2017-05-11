@@ -293,6 +293,7 @@ main(){
         LEDs = floor(((micVal-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
         displaySigLevel(LEDs);
         
+        
         if(numClaps == 2){
             
             LED1=!LED1;
@@ -302,6 +303,22 @@ main(){
             clapTime = 0;
             beginCount = 0;
             active = 1;
+        }
+        else{
+            if((micVal >= 300) && !clapTime && !beginCount){
+                clapTime = 10;
+                beginCount = 0;
+                numClaps++;
+            }
+            else if(clapTime && (micVal < 255) && !beginCount){
+                for(i = 0; i < 2000; i++){}
+                beginCount = 1;
+            }
+            else if(beginCount && clapTime && (micVal >= 300)){
+                for(i = 0; i < 2000; i++){}
+                numClaps++;
+
+            }
         }
 
         
@@ -462,6 +479,7 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
     }
     else if(beginCount && !clapTime){
         beginCount = 0;
+        numClaps = 0;
     }
 
     if(active){
@@ -490,21 +508,7 @@ void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microp
     if(active){
         CloseTimer1();
     }
-    else{
-        if((micVal >= 290) && !clapTime && !beginCount){
-        clapTime = 10;
-        beginCount = 0;
-        numClaps++;
-        }
-        if(clapTime && (micVal < 260) && !beginCount){
-            beginCount = 1;
-        }
-        else if(beginCount && clapTime && (micVal >= 290)){
-            
-            numClaps++;
 
-        }
-    }
 
 }
 void __ISR(_TIMER_2_VECTOR, IPL7SOFT) Timer2Handler(void){ //Displaying on SSDs
