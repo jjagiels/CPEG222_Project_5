@@ -189,13 +189,10 @@ short sec = 0;
 int micVal = 0;
 int sigPeak = 310;
 int sigOffset = 255;
-int tcount = 0;
-char firstClap = 0;
+char clapTime = 0;
 char beginCount = 0;
+char numClaps = 0;
 
-/*----------Debug Variables----------*/
-
-int OCAccept = 0;
 
 /*----------Variables for driving Servos----------*/
 
@@ -271,7 +268,7 @@ main(){
                 movementMode = hardLeft;
             }
             else if(!Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
-                for(i = 0; i < 10000; i++){}
+                for(i = 0; i < 100000; i++){}
                 if(!Sensor1 && !Sensor2 && !Sensor3 && !Sensor4){
                     movementMode = stop;
                     active = 0;   
@@ -281,11 +278,11 @@ main(){
                 }
 
             }
-            else if(!Sensor1 && !Sensor2 && Sensor3 && Sensor4){
+            else if(!Sensor2 && Sensor3 && Sensor4){
                 
                 movementMode = left;
             }
-            else if(Sensor1 && Sensor2 && !Sensor3 && !Sensor4){
+            else if(Sensor1 && Sensor2 && !Sensor3){
                 movementMode = right;
             }
             else{
@@ -296,6 +293,16 @@ main(){
         LEDs = floor(((micVal-sigOffset)*8.0)/(sigPeak-sigOffset)+0.5);
         displaySigLevel(LEDs);
         
+        if(numClaps == 2){
+            
+            LED1=!LED1;
+            LED2=!LED2;
+            LED3=!LED3;
+            LED4=!LED4;
+            clapTime = 0;
+            beginCount = 0;
+            active = 1;
+        }
 
         
     }
@@ -450,26 +457,10 @@ void output_compare3_initialize(void){
 
 void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
     
-    if(firstClap && !active){
-        if(micVal < 280){
-            beginCount = 1;
-        }
-        if(beginCount){
-            if(micVal >= 280){
-                LED1=!LED1;
-                LED2=!LED2;
-                LED3=!LED3;
-                LED4=!LED4;
-                firstClap = 0;
-                beginCount = 0;
-                active = 1;
-            }
-            else{
-                firstClap--;
-            }
-        }
+    if(clapTime && beginCount){
+        clapTime--;
     }
-    else if(beginCount && !firstClap){
+    else if(beginCount && !clapTime){
         beginCount = 0;
     }
 
@@ -493,14 +484,26 @@ void __ISR(_CORE_TIMER_VECTOR, IPL6SOFT) coreTimerHandler(void){ //Counting time
 }
 void __ISR(_TIMER_1_VECTOR, IPL6SOFT) Timer1Handler(void){ //Reading from microphone
     micVal = readADC(8); // sample and convert pin 3
-    if(micVal >= 280){
-        firstClap = 10;
-    }
-    
+
     mT1ClearIntFlag();    
     
     if(active){
         CloseTimer1();
+    }
+    else{
+        if((micVal >= 290) && !clapTime && !beginCount){
+        clapTime = 10;
+        beginCount = 0;
+        numClaps++;
+        }
+        if(clapTime && (micVal < 260) && !beginCount){
+            beginCount = 1;
+        }
+        else if(beginCount && clapTime && (micVal >= 290)){
+            
+            numClaps++;
+
+        }
     }
 
 }
